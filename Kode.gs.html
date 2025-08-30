@@ -1,0 +1,327 @@
+/**
+ * @OnlyCurrentDoc
+ * File ini berisi logika backend untuk web app.
+ * Dibuat oleh Gemini.
+ * Versi 9: Implementasi hak akses Publik & Privat dengan validasi kode.
+ */
+
+// --- KONFIGURASI KODE AKSES ---
+// Ganti kode ini dengan kode rahasia yang Anda inginkan.
+const ADMIN_CODE = "Andhika9619!"; // Ganti dengan kode admin Anda
+const ACCESS_CODES = {
+  "MIS BUTUNG": "Butung@",
+  "MTS TANUNTUNG": "Tanuntung!"
+};
+
+function doGet(e) {
+  const template = HtmlService.createTemplateFromFile('index');
+  const html = template.evaluate()
+    .setTitle('Database Siswa')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+  return html;
+}
+
+/**
+ * Mengambil data siswa dan menyesuaikan output berdasarkan hak akses.
+ * @param {string} namaSekolah - Nama sheet yang akan diambil datanya.
+ * @param {Object} filters - Objek berisi kriteria filter dari frontend.
+ * @param {string} accessCode - Kode akses yang dimasukkan oleh pengguna.
+ * @returns {Object} Objek berisi level akses ('public' atau 'private') dan data siswa.
+ */
+function getSiswaData(namaSekolah, filters, accessCode) {
+  try {
+    // 1. Validasi Hak Akses
+    let accessLevel = 'public';
+    let hasPrivateAccess = false;
+    const correctCode = ACCESS_CODES[namaSekolah];
+
+    if (accessCode && accessCode === ADMIN_CODE) {
+      accessLevel = 'admin';
+      hasPrivateAccess = true; // Admin juga punya akses privat
+    } else if (correctCode && accessCode === correctCode) {
+      accessLevel = 'private';
+      hasPrivateAccess = true;
+    }
+
+    // 2. Ambil Data Mentah dari Sheet
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(namaSekolah);
+    if (!sheet) return { accessLevel: accessLevel, data: [] };
+
+    const values = sheet.getDataRange().getValues();
+    if (values.length < 2) return { accessLevel: accessLevel, data: [] };
+
+    const headers = values[0];
+    const tanggalLahirIndex = headers.indexOf('Tanggal Lahir');
+    if (tanggalLahirIndex === -1) throw new Error("Kolom 'Tanggal Lahir' tidak ditemukan.");
+    
+    const bulanIndonesia = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
+    // 3. Proses Data Mentah menjadi JSON
+    let allData = values.slice(1).map(row => {
+      const obj = {};
+      let tanggalLahirObj = null;
+      const rawTanggalLahir = row[tanggalLahirIndex];
+
+      if (rawTanggalLahir && (rawTanggalLahir instanceof Date || !isNaN(new Date(rawTanggalLahir).getTime()))) {
+          tanggalLahirObj = new Date(rawTanggalLahir);
+      }
+      
+      headers.forEach((header, index) => {
+          obj[header] = row[index] || '-';
+      });
+      
+      obj.numericAge = -1;
+
+      if (tanggalLahirObj) {
+        // Format tanggal untuk display
+        const tgl = tanggalLahirObj.getDate();
+        const bln = bulanIndonesia[tanggalLahirObj.getMonth()];
+        const thn = tanggalLahirObj.getFullYear();
+        obj['Tanggal Lahir'] = `${tgl} ${bln} ${thn}`;
+        
+        // Hitung umur untuk display dan filtering
+        const today = new Date();
+        let years = today.getFullYear() - tanggalLahirObj.getFullYear();
+        let months = today.getMonth() - tanggalLahirObj.getMonth();
+        if (today.getDate() < tanggalLahirObj.getDate()) months--;
+        if (months < 0) {
+            years--;
+            months += 12;
+        }
+        obj['Umur'] = `${years} th, ${months} bln`;
+        obj.numericAge = years;
+      }
+      return obj;
+    });
+
+    // --- TAMBAHKAN BLOK INI ---
+    // Mengumpulkan semua kelas yang unik dari data
+    const semuaKelas = [...new Set(allData.map(siswa => siswa.Kelas.toString().trim()))];
+    const uniqueClasses = semuaKelas.filter(kelas => kelas && kelas !== '-').sort(); // Hapus yg kosong dan urutkan
+    // -------------------------
+
+    // 4. Terapkan Filter HANYA jika aksesnya privat
+    let filteredData = allData;
+    if (hasPrivateAccess && filters) {
+      if (filters.filterKelamin) {
+        filteredData = filteredData.filter(s => s['Jenis Kelamin'].toString().trim() === filters.filterKelamin);
+      }
+      if (filters.filterKelas) {
+        filteredData = filteredData.filter(s => s.Kelas.toString().trim() === filters.filterKelas);
+      }
+      if (filters.filterUmur) {
+        const umurFilter = filters.filterUmur.trim();
+        if (umurFilter.includes('-')) {
+          const [min, max] = umurFilter.split('-').map(Number);
+          if (!isNaN(min) && !isNaN(max)) {
+            filteredData = filteredData.filter(siswa => siswa.numericAge >= min && siswa.numericAge <= max);
+          }
+        } 
+        else if (umurFilter.startsWith('>')) {
+          const value = Number(umurFilter.replace('>=', '').replace('>', ''));
+          if (!isNaN(value)) {
+            filteredData = umurFilter.includes('=') 
+              ? filteredData.filter(siswa => siswa.numericAge >= value)
+              : filteredData.filter(siswa => siswa.numericAge > value);
+          }
+        }
+        else if (umurFilter.startsWith('<')) {
+          const value = Number(umurFilter.replace('<=', '').replace('<', ''));
+          if (!isNaN(value)) {
+            filteredData = umurFilter.includes('=')
+              ? filteredData.filter(siswa => siswa.numericAge <= value)
+              : filteredData.filter(siswa => siswa.numericAge < value);
+          }
+        }
+        else {
+          const value = Number(umurFilter);
+          if (!isNaN(value) && umurFilter !== '') {
+            filteredData = filteredData.filter(siswa => siswa.numericAge === value);
+          }
+        }
+      }
+      if (filters.sortBy) {
+        filteredData.sort((a, b) => {
+          const nameA = a['Nama Lengkap'].toLowerCase();
+          const nameB = b['Nama Lengkap'].toLowerCase();
+          if (filters.sortBy === 'asc') {
+            return nameA.localeCompare(nameB);
+          } else {
+            return nameB.localeCompare(nameA);
+          }
+        });
+      }
+    }
+
+    // 5. Siapkan data final berdasarkan hak akses
+    let finalData;
+    if (hasPrivateAccess) {
+      finalData = filteredData; // Kirim semua data
+    } else {
+      // Jika publik, hanya kirim data yang diizinkan
+      finalData = allData.map(siswa => ({
+        'Nama Lengkap': siswa['Nama Lengkap'],
+        'Jenis Kelamin': siswa['Jenis Kelamin'],
+        'Kelas': siswa.Kelas
+      }));
+    }
+
+    return { accessLevel: accessLevel, data: finalData, uniqueClasses: uniqueClasses };
+
+  } catch (error) {
+    console.error(`Error in getSiswaData: ${error.toString()}`);
+    throw new Error('Gagal memproses data. Pesan: ' + error.message);
+  }
+}
+
+/**
+ * Mengambil mapping header dari sheet 'Konfigurasi Header'.
+ * @returns {Object} Objek untuk mapping, contoh: {'Nama Siswa': 'Nama Lengkap'}.
+ */
+function getHeaderMapping() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const mappingSheet = ss.getSheetByName('Konfigurasi Header');
+  if (!mappingSheet) {
+    throw new Error("Sheet 'Konfigurasi Header' tidak ditemukan.");
+  }
+  const mappings = mappingSheet.getDataRange().getValues();
+  mappings.shift(); // Hapus baris header
+  
+  const mappingObject = {};
+  mappings.forEach(row => {
+    if (row[0] && row[1]) { // Pastikan kedua kolom tidak kosong
+      mappingObject[row[0].trim()] = row[1].trim();
+    }
+  });
+  return mappingObject;
+}
+
+/**
+ * Menerima data dari Excel (dalam bentuk JSON), memproses, dan menambahkannya ke sheet.
+ * @param {string} jsonDataString - String JSON dari data siswa yang di-upload.
+ * @param {string} namaSekolah - Nama sheet tujuan.
+ * @param {string} adminCode - Kode admin untuk verifikasi.
+ * @returns {string} Pesan sukses atau error.
+ */
+function uploadDataFromExcel(jsonDataString, namaSekolah, adminCode) {
+  // 1. Verifikasi Admin
+  if (adminCode !== ADMIN_CODE) {
+    throw new Error("Akses ditolak. Anda bukan admin.");
+  }
+
+  try {
+    // 2. Persiapan
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const targetSheet = ss.getSheetByName(namaSekolah);
+    if (!targetSheet) {
+      throw new Error(`Sheet tujuan '${namaSekolah}' tidak ditemukan.`);
+    }
+    const targetHeaders = targetSheet.getRange(1, 1, 1, targetSheet.getLastColumn()).getValues()[0];
+    const dataFromExcel = JSON.parse(jsonDataString);
+    if (dataFromExcel.length === 0) {
+      throw new Error("File Excel kosong atau format tidak didukung.");
+    }
+
+    // 3. Ambil Mapping & Proses Data
+    const headerMapping = getHeaderMapping();
+    const reverseMapping = Object.fromEntries(Object.entries(headerMapping).map(a => a.reverse()));
+
+    const newRows = dataFromExcel.map(rowFromExcel => {
+      const newRow = [];
+      targetHeaders.forEach(targetHeader => {
+        const excelHeader = reverseMapping[targetHeader];
+        let value = rowFromExcel[excelHeader];
+
+        // Jika nilai kosong (null/undefined), jadikan string kosong
+        if (value == null) {
+          value = '';
+        }
+
+        // KHUSUS untuk kolom NISN, pastikan nilainya adalah string
+        // untuk menjaga angka nol di depan (misal: "00123").
+        if (targetHeader === 'NISN') {
+          value = String(value);
+        }
+
+        newRow.push(value);
+      });
+      return newRow;
+    });
+
+    // 4. Tulis Data ke Spreadsheet
+    if (newRows.length > 0) {
+      targetSheet.getRange(targetSheet.getLastRow() + 1, 1, newRows.length, newRows[0].length)
+                 .setValues(newRows);
+    }
+    
+    return `Sukses! ${newRows.length} baris data berhasil ditambahkan ke sheet ${namaSekolah}.`;
+
+  } catch (e) {
+    Logger.log(e);
+    throw new Error("Gagal mengupload data: " + e.message);
+  }
+}
+
+/**
+ * Menambahkan data siswa baru ke sheet.
+ * @param {Object} dataSiswa - Objek berisi data siswa baru dari form.
+ * @param {string} namaSekolah - Nama sheet tujuan.
+ * @param {string} adminCode - Kode admin untuk verifikasi.
+ * @returns {string} Pesan sukses.
+ */
+function addSiswa(dataSiswa, namaSekolah, adminCode) {
+  if (adminCode !== ADMIN_CODE) {
+    throw new Error("Akses ditolak. Operasi ini hanya untuk admin.");
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(namaSekolah);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  
+  // Ubah objek menjadi array sesuai urutan header
+  const newRow = headers.map(header => dataSiswa[header] || '');
+  
+  sheet.appendRow(newRow);
+  return "Data siswa baru berhasil ditambahkan.";
+}
+
+/**
+ * Memperbarui data siswa yang ada di baris tertentu.
+ * @param {Object} dataSiswa - Objek berisi data siswa yang diperbarui.
+ * @param {number} rowIndex - Nomor baris di spreadsheet yang akan diperbarui (misal: baris 2).
+ * @param {string} namaSekolah - Nama sheet tujuan.
+ * @param {string} adminCode - Kode admin untuk verifikasi.
+ * @returns {string} Pesan sukses.
+ */
+function updateSiswa(dataSiswa, rowIndex, namaSekolah, adminCode) {
+  if (adminCode !== ADMIN_CODE) {
+    throw new Error("Akses ditolak. Operasi ini hanya untuk admin.");
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(namaSekolah);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  
+  const updatedRow = headers.map(header => dataSiswa[header] || '');
+  
+  // Tulis ulang seluruh baris
+  sheet.getRange(rowIndex, 1, 1, updatedRow.length).setValues([updatedRow]);
+  return `Data siswa di baris ${rowIndex} berhasil diperbarui.`;
+}
+
+/**
+ * Menghapus satu baris data siswa.
+ * @param {number} rowIndex - Nomor baris di spreadsheet yang akan dihapus.
+ * @param {string} namaSekolah - Nama sheet tempat data berada.
+ * @param {string} adminCode - Kode admin untuk verifikasi.
+ * @returns {string} Pesan sukses.
+ */
+function deleteSiswa(rowIndex, namaSekolah, adminCode) {
+  if (adminCode !== ADMIN_CODE) {
+    throw new Error("Akses ditolak. Operasi ini hanya untuk admin.");
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(namaSekolah);
+  
+  sheet.deleteRow(rowIndex);
+  return `Data di baris ${rowIndex} berhasil dihapus.`;
+}
