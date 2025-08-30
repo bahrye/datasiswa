@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Siswa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 min-h-screen">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">Database Siswa</h1>
+            <p class="mt-2 text-gray-600 dark:text-gray-400">Pilih sekolah untuk menampilkan data siswa.</p>
+        </header>
+
+        <div id="admin-panel" class="hidden bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 p-4 rounded-md shadow-lg mb-8">
+                    <h3 class="text-lg font-bold text-yellow-800 dark:text-yellow-200">Panel Admin: Upload Data Excel</h3>
+                    <p class="text-sm text-yellow-700 dark:text-yellow-300 mt-1">Pilih file Excel (.xlsx) untuk diupload ke sheet <strong id="admin-selected-school"></strong>. Pastikan header di file Excel Anda sesuai dengan yang ada di sheet 'Konfigurasi Header'.</p>
+                    <div class="mt-4 flex items-center space-x-4">
+                        <input type="file" id="excel-file-input" accept=".xlsx, .xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                        <button onclick="uploadExcel()" class="px-5 py-2 font-semibold text-white bg-blue-600 rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400" id="upload-button" disabled>Upload</button>
+                    </div>
+                    <div id="upload-status" class="mt-2 text-sm font-medium h-5"></div>
+                    <div class="mt-4 border-t pt-4">
+                        <button onclick="showAddModal()" class="px-5 py-2 font-semibold text-white bg-green-600 rounded-lg shadow-md hover:bg-green-700">
+                            + Tambah Siswa Baru
+                        </button>
+                    </div>
+                </div>
+
+        <div class="flex justify-center items-center space-x-4 mb-6">
+            <button onclick="selectSchool('MIS BUTUNG')" class="px-6 py-2 font-semibold text-white bg-blue-600 rounded-lg shadow-md hover:bg-blue-700">MIS BUTUNG</button>
+            <button onclick="selectSchool('MTS TANUNTUNG')" class="px-6 py-2 font-semibold text-white bg-green-600 rounded-lg shadow-md hover:bg-green-700">MTS TANUNTUNG</button>
+        </div>
+        
+        <!-- Tombol Akses Full -->
+        <div id="full-access-container" class="text-center mb-4 hidden">
+             <button onclick="showAccessModal()" class="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold">Lihat Data Lengkap & Filter (Akses Privat)</button>
+        </div>
+
+        <!-- Kontrol Filter (disembunyikan secara default) -->
+        <div id="filter-container" class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-8 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-end hidden">
+            <!-- Isi filter controls di sini -->
+            <div>
+                <label for="sort-by-name" class="block text-sm font-medium">Urutkan Nama</label>
+                <select id="sort-by-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    <option value="">Default</option> <option value="asc">A-Z</option> <option value="desc">Z-A</option>
+                </select>
+            </div>
+            <div>
+                <label for="filter-kelamin" class="block text-sm font-medium">Jenis Kelamin</label>
+                <select id="filter-kelamin" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    <option value="">Semua</option> <option value="Laki-laki">Laki-laki</option> <option value="Perempuan">Perempuan</option>
+                </select>
+            </div>
+            <div>
+                <label for="filter-kelas" class="block text-sm font-medium">Filter Kelas</label>
+                <select id="filter-kelas" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    <option value="">Semua</option>
+                    </select>
+            </div>
+            <div>
+                <label for="filter-umur" class="block text-sm font-medium">Filter Umur</label>
+                <input type="text" id="filter-umur" placeholder="Cth: 5-7, >10, 6" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+            </div>
+            <div class="flex space-x-2">
+                 <button onclick="fetchAndDisplayData()" class="w-full inline-flex justify-center py-2 px-4 border rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">Terapkan</button>
+                 <button onclick="resetAllFilters()" class="w-full inline-flex justify-center py-2 px-4 border rounded-md shadow-sm bg-white hover:bg-gray-50">Reset</button>
+            </div>
+        </div>
+
+        <main id="content-container" class="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden min-h-[200px]">
+            <div id="loading" class="hidden justify-center items-center p-16"><div class="loader"></div><span class="ml-4">Memuat data...</span></div>
+            <div id="table-container" class="overflow-x-auto"><p class="p-8 text-center text-gray-500">Silakan pilih salah satu sekolah di atas.</p></div>
+        </main>
+    </div>
+
+    <!-- Modal untuk Kode Akses -->
+    <div id="access-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Akses Privat</h3>
+                <div class="mt-2 px-7 py-3">
+                    <p class="text-sm text-gray-500 mb-4">Masukkan kode akses untuk sekolah <strong id="modal-school-name"></strong> untuk melihat data lengkap dan menggunakan filter.</p>
+                    <input type="password" id="access-code-input" class="w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none" placeholder="Kode Akses">
+                    <p id="modal-error" class="text-red-500 text-sm mt-2 h-4"></p>
+                </div>
+                <div class="items-center px-4 py-3">
+                    <button onclick="submitAccessCode()" class="px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                        Buka Akses
+                    </button>
+                    <button onclick="hideAccessModal()" class="mt-2 px-4 py-2 bg-gray-200 text-gray-800 text-base font-medium rounded-md w-full shadow-sm hover:bg-gray-300 focus:outline-none">
+                        Batal
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="siswa-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+        <div class="relative top-5 mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white dark:bg-gray-800">
+            <div class="mt-3">
+                <h3 id="modal-title" class="text-lg leading-6 font-medium text-gray-900 dark:text-white text-center">Form Data Siswa</h3>
+                <form id="siswa-form" class="mt-4 space-y-4">
+                    <input type="hidden" id="form-row-index">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="form-Nama Lengkap" class="text-sm font-medium">Nama Lengkap</label>
+                            <input type="text" id="form-Nama Lengkap" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div>
+                            <label for="form-Jenis Kelamin" class="text-sm font-medium">Jenis Kelamin</label>
+                            <select id="form-Jenis Kelamin" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                <option value="Laki-laki">Laki-laki</option>
+                                <option value="Perempuan">Perempuan</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="form-NISN" class="text-sm font-medium">NISN</label>
+                            <input type="text" id="form-NISN" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div>
+                            <label for="form-NIK" class="text-sm font-medium">NIK</label>
+                            <input type="text" id="form-NIK" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="form-Tempat Lahir" class="text-sm font-medium">Tempat Lahir</label>
+                            <input type="text" id="form-Tempat Lahir" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div>
+                            <label for="form-Tanggal Lahir" class="text-sm font-medium">Tanggal Lahir</label>
+                            <input type="date" id="form-Tanggal Lahir" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" placeholder="yyyy-mm-dd">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="form-Kelas" class="text-sm font-medium">Kelas</label>
+                            <input type="text" id="form-Kelas" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div>
+                            <label for="form-Alamat" class="text-sm font-medium">Alamat</label>
+                            <input type="text" id="form-Alamat" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label for="form-Nama Ayah Kandung" class="text-sm font-medium">Nama Ayah Kandung</label>
+                        <input type="text" id="form-Nama Ayah Kandung" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    </div>
+                    <div>
+                        <label for="form-Nama Ibu Kandung" class="text-sm font-medium">Nama Ibu Kandung</label>
+                        <input type="text" id="form-Nama Ibu Kandung" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    </div>
+                    <div>
+                        <label for="form-Nama Wali" class="text-sm font-medium">Nama Wali</label>
+                        <input type="text" id="form-Nama Wali" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    </div>
+                    
+                    <div id="form-status" class="text-red-500 text-sm h-4"></div>
+                </form>
+                
+                <div class="items-center px-4 py-3 sm:flex">
+                    <button onclick="saveSiswa()" class="px-4 py-2 bg-green-500 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-green-600 focus:outline-none">
+                        Simpan Perubahan
+                    </button>
+                    <button onclick="document.getElementById('siswa-modal').style.display = 'none'" class="mt-2 sm:mt-0 sm:ml-3 px-4 py-2 bg-gray-200 text-gray-800 text-base font-medium rounded-md w-full shadow-sm hover:bg-gray-300 focus:outline-none">
+                        Batal
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSchool = null;
+        // Objek untuk menyimpan sesi yang aktif
+        // Format: { "NAMA_SEKOLAH": { code: "...", timestamp: ... }, "admin": { ... } }
+        let accessSessions = {}; 
+        // Durasi sesi dalam menit
+        const SESSION_DURATION_MINUTES = 5;
+
+        const loadingEl = document.getElementById('loading');
+        const tableContainerEl = document.getElementById('table-container');
+        const filterContainerEl = document.getElementById('filter-container');
+        const fullAccessContainerEl = document.getElementById('full-access-container');
+
+        function selectSchool(namaSekolah) {
+            currentSchool = namaSekolah;
+            currentAccessCode = null; // Reset kode setiap ganti sekolah
+            fetchAndDisplayData();
+        }
+
+        function fetchAndDisplayData() {
+            if (!currentSchool) return;
+            loadingEl.style.display = 'flex';
+            tableContainerEl.innerHTML = '';
+            
+            const activeCode = getActiveCode(); // Gunakan fungsi baru di sini
+
+            const filters = activeCode ? { // Gunakan variabel activeCode
+                sortBy: document.getElementById('sort-by-name').value,
+                filterKelamin: document.getElementById('filter-kelamin').value,
+                filterKelas: document.getElementById('filter-kelas').value.trim(),
+                filterUmur: document.getElementById('filter-umur').value.trim()
+            } : null;
+
+            google.script.run
+                .withSuccessHandler(handleResponse)
+                .withFailureHandler(showError)
+                .getSiswaData(currentSchool, filters, activeCode); // Kirim activeCode ke backend
+        }
+
+        function handleResponse(response) {
+            loadingEl.style.display = 'none';
+
+            // PANGGIL FUNGSI BARU DI SINI
+            populateKelasFilter(response.uniqueClasses || []);
+
+            // Tampilkan atau sembunyikan UI berdasarkan hak akses
+            const adminPanel = document.getElementById('admin-panel');
+            if (response.accessLevel === 'admin') {
+                filterContainerEl.style.display = 'grid';
+                fullAccessContainerEl.style.display = 'none';
+                adminPanel.style.display = 'block'; // Tampilkan panel admin
+                document.getElementById('admin-selected-school').textContent = currentSchool;
+            } else if (response.accessLevel === 'private') {
+                filterContainerEl.style.display = 'grid';
+                fullAccessContainerEl.style.display = 'none';
+                adminPanel.style.display = 'none'; // Sembunyikan panel admin
+            } else {
+                filterContainerEl.style.display = 'none';
+                fullAccessContainerEl.style.display = 'block';
+                adminPanel.style.display = 'none'; // Sembunyikan panel admin
+            }
+
+            displayData(response.data, response.accessLevel);
+        }
+
+        function displayData(dataSiswa, accessLevel) {
+            if (!dataSiswa || dataSiswa.length === 0) {
+                tableContainerEl.innerHTML = `<p class="p-8 text-center text-gray-500">Tidak ada data siswa yang ditemukan.</p>`;
+                return;
+            }
+
+            const publicHeaders = ['No', 'Nama Lengkap', 'Jenis Kelamin', 'Kelas'];
+            let privateHeaders = ['No', 'Nama Lengkap', 'Jenis Kelamin', 'NISN', 'Tempat Lahir', 'Tanggal Lahir', 'Umur', 'Kelas', 'NIK', 'Alamat', 'Nama Ayah Kandung', 'Nama Ibu Kandung', 'Nama Wali'];
+            
+            // Tambahkan kolom 'Aksi' jika admin
+            if (accessLevel === 'admin') {
+                privateHeaders.push('Aksi');
+            }
+            
+            const headers = (accessLevel === 'private' || accessLevel === 'admin') ? privateHeaders : publicHeaders;
+            
+            let tableHTML = '<table class="min-w-full divide-y divide-gray-200"><thead><tr>';
+            headers.forEach(h => { tableHTML += `<th class="px-6 py-3 text-left text-xs font-medium uppercase">${h}</th>`; });
+            tableHTML += '</tr></thead><tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">';
+
+            dataSiswa.forEach((siswa, index) => {
+                // Simpan nomor baris asli dari spreadsheet ke objek siswa
+                // +2 karena: +1 untuk header, +1 karena index array mulai dari 0
+                siswa.originalRowIndex = index + 2; 
+
+                tableHTML += '<tr>';
+                headers.forEach(header => {
+                    if (header === 'Aksi') {
+                        // Tombol Edit & Hapus
+                        tableHTML += `<td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                            <button onclick='showEditModal(${JSON.stringify(siswa)})' class="text-indigo-600 hover:text-indigo-900">Edit</button>
+                            <button onclick='confirmDelete(${siswa.originalRowIndex})' class="text-red-600 hover:text-red-900">Hapus</button>
+                        </td>`;
+                    } else {
+                        const value = (header === 'No') ? index + 1 : (siswa[header] || '-');
+                        tableHTML += `<td class="px-6 py-4 whitespace-nowrap text-sm">${value}</td>`;
+                    }
+                });
+                tableHTML += '</tr>';
+            });
+
+            tableHTML += '</tbody></table>';
+            tableContainerEl.innerHTML = tableHTML;
+        }
+
+        /**
+         * Mengisi dropdown filter kelas dengan data unik dari server.
+         * @param {string[]} classes - Array berisi nama-nama kelas yang unik.
+         */
+        function populateKelasFilter(classes) {
+            const selectEl = document.getElementById('filter-kelas');
+            const currentValue = selectEl.value; // Simpan nilai yang sedang dipilih
+
+            // Kosongkan opsi lama, sisakan opsi "Semua"
+            selectEl.innerHTML = '<option value="">Semua</option>';
+
+            classes.forEach(kelas => {
+                const option = document.createElement('option');
+                option.value = kelas;
+                option.textContent = kelas;
+                selectEl.appendChild(option);
+            });
+
+            // Kembalikan ke nilai yang tadi dipilih jika masih ada
+            selectEl.value = currentValue;
+        }
+
+        function showAccessModal() {
+            document.getElementById('modal-school-name').textContent = currentSchool;
+            document.getElementById('access-code-input').value = '';
+            document.getElementById('modal-error').textContent = '';
+            document.getElementById('access-modal').style.display = 'block';
+        }
+
+        function hideAccessModal() {
+            document.getElementById('access-modal').style.display = 'none';
+        }
+
+        function submitAccessCode() {
+            const enteredCode = document.getElementById('access-code-input').value;
+            const modalError = document.getElementById('modal-error');
+
+            if (!enteredCode) {
+                modalError.textContent = 'Kode tidak boleh kosong.';
+                return;
+            }
+            
+            modalError.textContent = 'Memvalidasi kode...';
+
+            // Panggil backend untuk memvalidasi kode yang dimasukkan
+            google.script.run
+                .withSuccessHandler(response => {
+                    // Cek level akses yang dikembalikan oleh backend
+                    if (response.accessLevel === 'public') {
+                        modalError.textContent = 'Kode akses salah.';
+                        return;
+                    }
+
+                    // Jika kode benar (admin atau privat), simpan sesi
+                    const sessionKey = response.accessLevel === 'admin' ? 'admin' : currentSchool;
+                    accessSessions[sessionKey] = {
+                        code: enteredCode,
+                        timestamp: Date.now() // Catat waktu login
+                    };
+
+                    // Tutup modal dan muat ulang data dengan hak akses baru
+                    hideAccessModal();
+                    fetchAndDisplayData();
+                })
+                .withFailureHandler(error => {
+                    modalError.textContent = `Error: ${error.message}`;
+                })
+                .getSiswaData(currentSchool, null, enteredCode); // Kirim kode untuk divalidasi
+        }
+        
+        function resetAllFilters() {
+            document.getElementById('sort-by-name').value = "";
+            document.getElementById('filter-kelamin').value = "";
+            document.getElementById('filter-kelas').value = "";
+            document.getElementById('filter-umur').value = "";
+            fetchAndDisplayData();
+        }
+
+        function showError(error) {
+            loadingEl.style.display = 'none';
+            tableContainerEl.innerHTML = `<div class="p-8 text-center text-red-600"><h3>Terjadi Kesalahan</h3><p class="mt-2">${error.message}</p></div>`;
+        }
+
+        // --- FUNGSI UNTUK ADMIN UPLOAD ---
+        let parsedExcelData = null;
+
+        // Event listener untuk file input, aktifkan tombol upload jika file dipilih
+        document.getElementById('excel-file-input').addEventListener('change', (event) => {
+            const uploadButton = document.getElementById('upload-button');
+            const uploadStatus = document.getElementById('upload-status');
+
+            if (event.target.files.length > 0) {
+                uploadButton.disabled = false;
+                uploadStatus.textContent = `File '${event.target.files[0].name}' siap diupload.`;
+                uploadStatus.className = 'mt-2 text-sm font-medium text-green-600';
+                handleFileSelect(event);
+            } else {
+                uploadButton.disabled = true;
+                uploadStatus.textContent = '';
+                parsedExcelData = null;
+            }
+        });
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array', cellDates: true});
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                // Convert to JSON, header: 1 artinya baris pertama adalah header
+                parsedExcelData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function uploadExcel() {
+            const activeCode = getActiveCode(); // 1. Gunakan sistem sesi baru
+
+            // 2. Cek menggunakan activeCode, bukan currentAccessCode
+            if (!parsedExcelData || !currentSchool || !activeCode) {
+                showError({ message: "Sesi tidak valid atau tidak ada file dipilih. Silakan refresh." });
+                return;
+            }
+
+            const uploadButton = document.getElementById('upload-button');
+            const uploadStatus = document.getElementById('upload-status');
+            
+            uploadButton.disabled = true;
+            uploadButton.textContent = 'Mengupload...';
+            uploadStatus.textContent = 'Mohon tunggu, data sedang diproses...';
+
+            // Hapus baris header dari data, karena kita hanya butuh datanya
+            const headers = parsedExcelData.shift(); 
+            
+            // Buat ulang array of objects dengan header sebagai key
+            const jsonData = parsedExcelData.map(row => {
+                const obj = {};
+                headers.forEach((header, index) => {
+                    obj[header] = row[index];
+                });
+                return obj;
+            });
+
+            google.script.run
+                .withSuccessHandler(response => {
+                    uploadButton.disabled = false;
+                    uploadButton.textContent = 'Upload';
+                    uploadStatus.className = 'mt-2 text-sm font-medium text-green-700';
+                    uploadStatus.textContent = response;
+                    document.getElementById('excel-file-input').value = ''; // Reset input file
+                    parsedExcelData = null;
+                    fetchAndDisplayData(); // Refresh tabel data
+                })
+                .withFailureHandler(error => {
+                    uploadButton.disabled = false;
+                    uploadButton.textContent = 'Upload';
+                    uploadStatus.className = 'mt-2 text-sm font-medium text-red-600';
+                    uploadStatus.textContent = `Error: ${error.message}`;
+                })
+                // 3. Kirim activeCode yang valid ke backend
+                .uploadDataFromExcel(JSON.stringify(jsonData), currentSchool, activeCode);
+        }
+
+        /**
+         * Mengecek dan mengembalikan kode akses yang valid dan belum kedaluwarsa.
+         * Prioritas: Admin > Sekolah Spesifik.
+         * @returns {string|null} Kode akses yang aktif atau null jika tidak ada.
+         */
+        function getActiveCode() {
+            const now = Date.now();
+            const sessionDurationMs = SESSION_DURATION_MINUTES * 60 * 1000;
+
+            // Prioritas 1: Cek sesi admin yang aktif
+            if (accessSessions.admin && (now - accessSessions.admin.timestamp < sessionDurationMs)) {
+                return accessSessions.admin.code;
+            }
+
+            // Prioritas 2: Cek sesi untuk sekolah yang sedang dipilih
+            if (accessSessions[currentSchool] && (now - accessSessions[currentSchool].timestamp < sessionDurationMs)) {
+                return accessSessions[currentSchool].code;
+            }
+
+            // Jika tidak ada sesi aktif, kembalikan null
+            return null;
+        }
+
+        // --- FUNGSI UNTUK ADMIN CRUD ---
+
+        const siswaModal = document.getElementById('siswa-modal');
+        const siswaForm = document.getElementById('siswa-form');
+        const modalTitle = document.getElementById('modal-title');
+        const formStatus = document.getElementById('form-status');
+        const formRowIndex = document.getElementById('form-row-index');
+
+        function showAddModal() {
+            modalTitle.textContent = 'Tambah Data Siswa Baru';
+            siswaForm.reset();
+            formRowIndex.value = ''; // Pastikan indeks baris kosong untuk mode "Tambah"
+            siswaModal.style.display = 'block';
+        }
+
+        function showEditModal(siswa) {
+            modalTitle.textContent = 'Edit Data Siswa';
+            siswaForm.reset();
+            
+            // Isi form dengan data yang ada
+            for (const key in siswa) {
+                const input = document.getElementById(`form-${key}`);
+                if (input) {
+                    // Khusus untuk tanggal, formatnya harus YYYY-MM-DD
+                    if (input.type === 'date' && siswa[key]) {
+                        try {
+                          // Coba konversi dari format "d MMMM yyyy" atau format lain yang dikenali
+                          const dateObj = new Date(siswa[key]);
+                          // Ambil YYYY-MM-DD
+                          input.value = dateObj.toISOString().split('T')[0];
+                        } catch(e) {
+                          input.value = ''; // Gagal konversi, kosongkan saja
+                        }
+                    } else {
+                      input.value = siswa[key];
+                    }
+                }
+            }
+            
+            formRowIndex.value = siswa.originalRowIndex; // Simpan index baris asli
+            siswaModal.style.display = 'block';
+        }
+
+        function saveSiswa() {
+            formStatus.textContent = 'Menyimpan...';
+            const activeCode = getActiveCode();
+            
+            // Kumpulkan data dari form ke dalam satu objek
+            const data = {};
+            const inputs = siswaForm.querySelectorAll('input[id^="form-"], select[id^="form-"]');
+            inputs.forEach(input => {
+                const key = input.id.replace('form-', '');
+                if (key !== 'row-index') {
+                    data[key] = input.value;
+                }
+            });
+
+            const rowIndex = formRowIndex.value;
+            
+            if (rowIndex) {
+                // --- MODE UPDATE ---
+                google.script.run
+                    .withSuccessHandler(response => {
+                        formStatus.textContent = '';
+                        siswaModal.style.display = 'none';
+                        fetchAndDisplayData(); // Refresh tabel
+                    })
+                    .withFailureHandler(error => {
+                        formStatus.textContent = `Error: ${error.message}`;
+                    })
+                    .updateSiswa(data, rowIndex, currentSchool, activeCode);
+
+            } else {
+                // --- MODE ADD ---
+                google.script.run
+                    .withSuccessHandler(response => {
+                        formStatus.textContent = '';
+                        siswaModal.style.display = 'none';
+                        fetchAndDisplayData(); // Refresh tabel
+                    })
+                    .withFailureHandler(error => {
+                        formStatus.textContent = `Error: ${error.message}`;
+                    })
+                    .addSiswa(data, currentSchool, activeCode);
+            }
+        }
+
+        function confirmDelete(rowIndex) {
+            if (confirm(`Apakah Anda yakin ingin menghapus data di baris ${rowIndex}? Tindakan ini tidak dapat dibatalkan.`)) {
+                const activeCode = getActiveCode();
+                google.script.run
+                    .withSuccessHandler(response => {
+                        fetchAndDisplayData(); // Refresh tabel setelah hapus
+                    })
+                    .withFailureHandler(error => {
+                        alert(`Gagal menghapus: ${error.message}`);
+                    })
+                    .deleteSiswa(rowIndex, currentSchool, activeCode);
+            }
+        }
+    </script>
+</body>
+</html>
